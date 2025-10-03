@@ -1,9 +1,6 @@
 use pollster::FutureExt;
 use winit::{
-    application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::ActiveEventLoop,
-    window::{Window, WindowId},
+    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop, platform::wayland::WindowAttributesExtWayland, window::{Window, WindowAttributes, WindowId}
 };
 
 use crate::gpu::GpuState;
@@ -24,8 +21,11 @@ impl Default for App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let attrs = WindowAttributes::default()
+            .with_title("shader_toy")
+            .with_name("myapp", "myapp");
         let window = event_loop
-            .create_window(Window::default_attributes())
+            .create_window(attrs)
             .unwrap();
 
         self.time = instant::Instant::now();
@@ -51,6 +51,8 @@ impl ApplicationHandler for App {
                     let now = instant::Instant::now();
                     let dt = now - self.time;
                     self.time = now;
+
+                    state.window().pre_present_notify();
                     state.window().request_redraw();
                     state.update(dt);
                     state.render();

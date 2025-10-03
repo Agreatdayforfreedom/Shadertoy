@@ -1,5 +1,5 @@
 [package]
-name = "ao_engine"
+name = "shader_toy"
 version = "0.1.0"
 edition = "2021"
 
@@ -13,6 +13,7 @@ winit = "0.30.5"
 instant = "0.1"
 anyhow = "1.0.95"
 image = "0.25.5"
+notify = { version = "8.1.0", features = ["serde"] }
 
 
 # [lib]

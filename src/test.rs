@@ -1,4 +1,9 @@
-// use cgmath::Point2;
+use notify::Watcher;
+use std::{path::Path, time::Duration};
+use wgpu::naga;
+
+use crate::uniforms::time::TimeUniform;
+use std::sync::mpsc;
 
 use crate::{
     quad::Quad,
@@ -25,16 +30,22 @@ pub struct Test {
     test_sprite: Sprite,
     test_pipeline: wgpu::RenderPipeline,
     camera: Camera2D,
+    time: Uniform<TimeUniform>,
+    channel: (mpsc::Sender<String>, mpsc::Receiver<String>),
+    pipeline_layout: wgpu::PipelineLayout,
+    read_lock: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    // unused - avoid dropping the watcher
+    _watcher: notify::RecommendedWatcher,
 }
 
 impl Test {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: &wgpu::TextureFormat) -> Self {
-        //uniform
+        //uniforms
         let test_uniform = Uniform::<TestData>::new(device);
-        //gruops
+        let time = Uniform::<TimeUniform>::new(device);
         let camera_uniform = Uniform::<Camera2DUniform>::new(device);
+        //gruops
         let camera = Camera2D::new(camera_uniform);
-        // let test_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor { entries });
         let sprite_layout = create_bind_group_layout(device);
         let bytes = include_bytes!("../assets/test.png");
         let test_sprite = Sprite::new(
@@ -45,31 +56,112 @@ impl Test {
             bytes,
         );
 
-        //pipeline
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Main_pipeline_layout"),
-            bind_group_layouts: &[&camera.uniform.bind_group_layout, &sprite_layout],
+            bind_group_layouts: &[
+                &camera.uniform.bind_group_layout,
+                &sprite_layout,
+                &time.bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
+
         let shader = device.create_shader_module(wgpu::include_wgsl!("./shaders/sprite.wgsl"));
         let test_pipeline = create_render_pipeline(device, &shader, *format, &pipeline_layout);
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+
+        let read_lock = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let read_lock_clone = read_lock.clone();
+
+        let mut watcher = notify::RecommendedWatcher::new(
+            move |res: notify::Result<notify::Event>| match res {
+                Ok(evt) => {
+                    println!("evt: {:?}", evt);
+                    if evt.kind.is_modify() || evt.kind.is_create() {
+                        let mut t = read_lock_clone.lock().unwrap();
+                        *t = Some(instant::Instant::now());
+                        /*println!("Reading sprite.wgsl...");
+                        }*/
+                    }
+                }
+                Err(e) => eprintln!("watch error: {:?}", e),
+            },
+            notify::Config::default(),
+        )
+        .unwrap();
+
+        watcher
+            .watch(Path::new("./src/shaders/"), RecursiveMode::Recursive)
+            .expect("Watcher throws!");
+
         Self {
             test_uniform,
             test_sprite,
             test_pipeline,
+            time,
             camera,
+            channel: (tx, rx),
+            pipeline_layout,
+            read_lock,
+            _watcher: watcher,
         }
     }
 
-    pub fn update(&mut self, queue: &mut wgpu::Queue) {
+    pub fn update(&mut self, queue: &mut wgpu::Queue, size: (u32, u32)) {
+        self.time.data.time += 0.01;
+        self.time.data.resulotion = [size.0 as f32, size.1 as f32];
+
         self.camera.uniform.write(queue);
+        self.time.write(queue);
     }
     pub fn render(
         &mut self,
         surface: &wgpu::Surface,
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
+        format: &wgpu::TextureFormat,
     ) {
+        let mut g = self.read_lock.lock().unwrap();
+        if let Some(last) = *g {
+            if last.elapsed() > Duration::from_millis(200) {
+                println!("Last: {}", last.elapsed().as_secs_f32());
+                    if let Ok(src) = std::fs::read_to_string("./src/shaders/sprite.wgsl") {
+                    let _ = self.channel.0.send(src);
+                }
+                *g = None;
+            }
+        }
+
+        if let Ok(new_src) = self.channel.1.try_recv() {
+
+            println!("Waiting... {} <<<", new_src);
+            match naga::front::wgsl::parse_str(&new_src) {
+                Ok(module) => {
+                    let mut validator = naga::valid::Validator::new(
+                        naga::valid::ValidationFlags::all(),
+                        naga::valid::Capabilities::default(),
+                    );
+                    if let Err(validation_err) = validator.validate(&module) {
+                        eprintln!("Hot-reload: WGSL validation error: {:?}", validation_err);
+                        return;
+                    }
+                    match try_rebuild_pipeline(&device, &new_src, &self.pipeline_layout, *format) {
+                        Ok(new_pipeline) => {
+                            self.test_pipeline = new_pipeline;
+                            eprintln!("Shader reloaded successfully!");
+                        }
+                        Err(err) => {
+                            eprintln!("Shader reload failed:\n{}", err);
+                        }
+                    }
+                }
+                Err(parse_err) => {
+                    eprintln!("Hot-reload: failed to parse WGSL: {:?}", parse_err);
+                    return;
+                }
+            }
+        }
         let frame = surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
@@ -95,22 +187,33 @@ impl Test {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-
-            //pipeline
             rpass.set_pipeline(&self.test_pipeline);
-
             rpass.set_bind_group(0, &self.camera.uniform.bind_group, &[]);
-
             self.test_sprite.bind(&mut rpass);
+            rpass.set_bind_group(2, &self.time.bind_group, &[]);
+
             rpass.draw(0..6, 0..1);
         }
 
-        queue.submit(Some(encoder.finish()));
+        queue.submit(std::iter::once(encoder.finish()));
 
         frame.present();
     }
 }
-
+fn try_rebuild_pipeline(
+    device: &wgpu::Device,
+    wgsl_source: &str,
+    pipeline_layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> Result<wgpu::RenderPipeline, String> {
+    // Create shader module
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("hot_shader"),
+        source: wgpu::ShaderSource::Wgsl(wgsl_source.into()),
+    });
+    let pipeline = create_render_pipeline(device, &shader, format, pipeline_layout);
+    Ok(pipeline)
+}
 pub fn create_render_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
@@ -124,26 +227,7 @@ pub fn create_render_pipeline(
             module: &shader,
             entry_point: Some("vs_main"),
             compilation_options: Default::default(),
-            buffers: &[
-                Quad::desc(),
-                // wgpu::VertexBufferLayout {
-                //     array_stride: 8 * 4,
-                //     step_mode: wgpu::VertexStepMode::Instance,
-                //     attributes: &[
-                //         //position
-                //         wgpu::VertexAttribute {
-                //             format: wgpu::VertexFormat::Float32x4,
-                //             offset: 0,
-                //             shader_location: 1,
-                //         },
-                //         wgpu::VertexAttribute {
-                //             format: wgpu::VertexFormat::Float32x4,
-                //             offset: 0,
-                //             shader_location: 1,
-                //         },
-                //     ],
-                // },
-            ],
+            buffers: &[Quad::desc()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -175,7 +259,7 @@ pub fn create_render_pipeline(
 }
 
 use cgmath::{Matrix4, Vector2, Vector3};
-use wgpu::core::device::queue;
+use notify::RecursiveMode;
 
 const WIDTH: f32 = 800.0;
 const HEIGHT: f32 = 600.0;

@@ -1,4 +1,4 @@
-use ao_engine::run;
+use shader_toy::run;
 
 fn main() {
     run();

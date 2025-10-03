@@ -76,7 +76,7 @@ impl GpuState {
             format: surface_format,
             width: size.width.max(800),
             height: size.height.max(600), // setting this because Fullscreen does not work on web: https://developer.mozilla.org/en-US/docs/Glossary/Transient_activation
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -101,7 +101,9 @@ impl GpuState {
         false
     }
     pub fn update(&mut self, dt: instant::Duration) {
-        self.test.update(&mut self.queue);
+//        println!("delta: {}", dt.as_secs_f32());
+  //      println!("fps: {}", (1.0 / dt.as_secs_f32()));
+        self.test.update(&mut self.queue, (self.config.width, self.config.height));
     }
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         let (width, height) = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
@@ -117,6 +119,6 @@ impl GpuState {
 
     pub fn render(&mut self) {
         self.test
-            .render(&self.surface, &self.device, &mut self.queue);
+            .render(&self.surface, &self.device, &mut self.queue, &self.config.format);
     }
 }
