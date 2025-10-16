@@ -66,18 +66,19 @@ fn fs_main(@location(0) v_uv: vec2<f32>) -> @location(0) vec4<f32> {
     uv.x *= u.resolution.x / u.resolution.y;
 
   
-    let t = sin(u.time);
-    let a = atan2(uv.y, uv.x);
-    let r = length(uv) * 1.0;
-    let waves = sin(1.0*r - t*1.0);
+    let t = u.time * 0.05;
+    let a = -atan2(uv.y, uv.x);
+    let r = length(uv) * 2.0;
+    let waves = sin(2.5*r - t*2.5);
 
     let col = 0.5 + 0.5 * vec3<f32>(
-        sin(a*1.0 + (sin(t) * sin(t))),
-        sin(a*2.0 + (t * cos(t)) * cos(t)),
-        sin(a*3.0 + (sin(t) * sin(t)) * sin(t))
+        sin(a*1.0 + (sin(t) * cos(t))),
+        sin(a*2.0 + (t * sin(t))) + 2.0 * sin(t) * cos(a),
+        sin(a*3.0 + (sin(t) * cos(t))) + 4.0 * cos(t) * sin(a)
     );
 
-    let fade = 1.0/(1.0 + 2.0*r*r);
-    return vec4<f32>(col * fade * (waves + 1.0), 1.0);
+    let fade = 1.0/(1.0 + 4.0*r*r);
+    //return vec4<f32>(col * fade * (waves + 1.0), 1.0);
+  return vec4<f32>(col * fade * (waves + 5.0), 1.0) * 3.0;
 }
 
