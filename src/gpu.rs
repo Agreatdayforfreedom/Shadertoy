@@ -8,7 +8,7 @@ use winit::{
     window::{self, Window},
 };
 
-use crate::test::Test;
+use crate::{input_manager::InputEvent, stoy::Stoy};
 
 #[allow(dead_code)]
 pub struct GpuState {
@@ -17,7 +17,7 @@ pub struct GpuState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     window: Arc<Window>,
-    test: Test,
+    engine: Stoy,
 }
 
 impl GpuState {
@@ -82,14 +82,14 @@ impl GpuState {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        let test = Test::new(&device, &queue, &config.format);
+        let engine = Stoy::new(&device, &queue, &config.format);
         Self {
             surface,
             device,
             queue,
             config,
             window,
-            test,
+            engine,
         }
     }
 
@@ -97,13 +97,14 @@ impl GpuState {
         self.window.as_ref()
     }
 
-    pub fn input(&mut self, event: &winit::event::WindowEvent) -> bool {
+    pub fn input(&mut self, event: InputEvent) -> bool {
+        self.engine.input(event);
         false
     }
     pub fn update(&mut self, dt: instant::Duration) {
 //        println!("delta: {}", dt.as_secs_f32());
   //      println!("fps: {}", (1.0 / dt.as_secs_f32()));
-        self.test.update(&mut self.queue, (self.config.width, self.config.height));
+        self.engine.update(&mut self.queue, (self.config.width, self.config.height));
     }
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         let (width, height) = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
@@ -118,7 +119,7 @@ impl GpuState {
     }
 
     pub fn render(&mut self) {
-        self.test
+        self.engine
             .render(&self.surface, &self.device, &mut self.queue, &self.config.format);
     }
 }

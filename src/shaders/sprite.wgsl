@@ -17,6 +17,8 @@ var<uniform> camera: Camera;
 struct Uniforms {
     time: f32,
     resolution: vec2<f32>,
+    mouse_position: vec2<f32>,
+    zoom: vec2<f32>,
 }
 @group(2) @binding(0)
 var<uniform> u: Uniforms;
@@ -62,23 +64,22 @@ fn hash(p: vec2<f32>) -> f32 {
 }
 @fragment
 fn fs_main(@location(0) v_uv: vec2<f32>) -> @location(0) vec4<f32> {
-    var uv = (v_uv - 0.5) * 2.0;
+    
+    var uv = (v_uv - 0.5) * 10.0;
     uv.x *= u.resolution.x / u.resolution.y;
-
-  
-    let t = u.time * 0.05;
+    uv.x *= u.zoom.x / u.zoom.y;
+    uv.y *= u.zoom.x / u.zoom.y;
+    let t = u.time * 0.5;
     let a = -atan2(uv.y, uv.x);
     let r = length(uv) * 2.0;
-    let waves = sin(2.5*r - t*2.5);
 
-    let col = 0.5 + 0.5 * vec3<f32>(
+    let col = 0.58 + 0.26 * vec3<f32>(
         sin(a*1.0 + (sin(t) * cos(t))),
-        sin(a*2.0 + (t * sin(t))) + 2.0 * sin(t) * cos(a),
-        sin(a*3.0 + (sin(t) * cos(t))) + 4.0 * cos(t) * sin(a)
+        sin(a*2.0 + (t * sin(t))) + 1.0,
+        sin(a*3.0 + (sin(t) * cos(t))) + 2.0
     );
 
     let fade = 1.0/(1.0 + 4.0*r*r);
-    //return vec4<f32>(col * fade * (waves + 1.0), 1.0);
-  return vec4<f32>(col * fade * (waves + 5.0), 1.0) * 3.0;
+  return vec4<f32>(col * fade , 1.0) * 3.0;
 }
 

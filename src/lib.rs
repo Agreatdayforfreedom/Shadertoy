@@ -2,9 +2,10 @@ use window::App;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 mod gpu;
+mod input_manager;
 mod quad;
 mod sprite;
-mod test;
+mod stoy;
 mod texture;
 mod uniform;
 mod window;

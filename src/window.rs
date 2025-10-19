@@ -1,9 +1,13 @@
 use pollster::FutureExt;
 use winit::{
-    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop, platform::wayland::WindowAttributesExtWayland, window::{Window, WindowAttributes, WindowId}
+    application::ApplicationHandler,
+    event::{DeviceEvent, WindowEvent},
+    event_loop::ActiveEventLoop,
+    platform::wayland::WindowAttributesExtWayland,
+    window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::gpu::GpuState;
+use crate::{gpu::GpuState, input_manager::InputEvent};
 
 pub struct App {
     time: instant::Instant,
@@ -24,16 +28,13 @@ impl ApplicationHandler for App {
         let attrs = WindowAttributes::default()
             .with_title("shader_toy")
             .with_name("myapp", "myapp");
-        let window = event_loop
-            .create_window(attrs)
-            .unwrap();
+        let window = event_loop.create_window(attrs).unwrap();
 
         self.time = instant::Instant::now();
         let state = GpuState::new(window);
 
         self.state = Some(state.block_on());
     }
-
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let state = if let Some(state) = &mut self.state {
             state
@@ -41,7 +42,7 @@ impl ApplicationHandler for App {
             panic!("NO state")
         };
 
-        if !state.input(&event) {
+        if !state.input(InputEvent::Window(&event)) {
             match event {
                 WindowEvent::CloseRequested => {
                     println!("The close button was pressed; stopping");
@@ -57,7 +58,6 @@ impl ApplicationHandler for App {
                     state.update(dt);
                     state.render();
                 }
-
                 _ => (),
             }
         }

@@ -2,7 +2,7 @@ use notify::Watcher;
 use std::{path::Path, time::Duration};
 use wgpu::naga;
 
-use crate::uniforms::time::TimeUniform;
+use crate::{input_manager::{InputEvent, InputManager}, uniforms::uniforms::MainUniforms};
 use std::sync::mpsc;
 
 use crate::{
@@ -11,38 +11,25 @@ use crate::{
     uniform::Uniform,
 };
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TestData {
-    position: [f32; 2],
-}
 
-impl Default for TestData {
-    fn default() -> Self {
-        Self {
-            position: [0.0, 0.0],
-        }
-    }
-}
 
-pub struct Test {
-    test_uniform: Uniform<TestData>,
+pub struct Stoy {
     test_sprite: Sprite,
-    test_pipeline: wgpu::RenderPipeline,
+    pipeline: wgpu::RenderPipeline,
     camera: Camera2D,
-    time: Uniform<TimeUniform>,
+    uniforms: Uniform<MainUniforms>,
     channel: (mpsc::Sender<String>, mpsc::Receiver<String>),
     pipeline_layout: wgpu::PipelineLayout,
     read_lock: std::sync::Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+    input: InputManager,
     // unused - avoid dropping the watcher
     _watcher: notify::RecommendedWatcher,
 }
 
-impl Test {
+impl Stoy {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: &wgpu::TextureFormat) -> Self {
         //uniforms
-        let test_uniform = Uniform::<TestData>::new(device);
-        let time = Uniform::<TimeUniform>::new(device);
+        let uniforms = Uniform::<MainUniforms>::new(device);
         let camera_uniform = Uniform::<Camera2DUniform>::new(device);
         //gruops
         let camera = Camera2D::new(camera_uniform);
@@ -61,13 +48,13 @@ impl Test {
             bind_group_layouts: &[
                 &camera.uniform.bind_group_layout,
                 &sprite_layout,
-                &time.bind_group_layout,
+                &uniforms.bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("./shaders/sprite.wgsl"));
-        let test_pipeline = create_render_pipeline(device, &shader, *format, &pipeline_layout);
+        let pipeline = create_render_pipeline(device, &shader, *format, &pipeline_layout);
 
         let (tx, rx) = std::sync::mpsc::channel::<String>();
 
@@ -96,24 +83,32 @@ impl Test {
             .expect("Watcher throws!");
 
         Self {
-            test_uniform,
             test_sprite,
-            test_pipeline,
-            time,
+            pipeline,
+            uniforms,
             camera,
             channel: (tx, rx),
             pipeline_layout,
+            input: InputManager::default(),
             read_lock,
             _watcher: watcher,
         }
     }
 
+    pub fn input(&mut self, event: InputEvent) {
+    
+        self.input.process_events(event);
+
+    }
+
     pub fn update(&mut self, queue: &mut wgpu::Queue, size: (u32, u32)) {
-        self.time.data.time += 0.01;
-        self.time.data.resulotion = [size.0 as f32, size.1 as f32];
+        self.uniforms.data.time += 0.01;
+        self.uniforms.data.resulotion = [size.0 as f32, size.1 as f32];
+        self.uniforms.data.mouse_position = [self.input.x as f32, self.input.y as f32];
+        self.uniforms.data.zoom = [self.input.wx.abs(), self.input.wy.abs()];
 
         self.camera.uniform.write(queue);
-        self.time.write(queue);
+        self.uniforms.write(queue);
     }
     pub fn render(
         &mut self,
@@ -148,7 +143,7 @@ impl Test {
                     }
                     match try_rebuild_pipeline(&device, &new_src, &self.pipeline_layout, *format) {
                         Ok(new_pipeline) => {
-                            self.test_pipeline = new_pipeline;
+                            self.pipeline = new_pipeline;
                             eprintln!("Shader reloaded successfully!");
                         }
                         Err(err) => {
@@ -187,10 +182,10 @@ impl Test {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            rpass.set_pipeline(&self.test_pipeline);
+            rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.camera.uniform.bind_group, &[]);
             self.test_sprite.bind(&mut rpass);
-            rpass.set_bind_group(2, &self.time.bind_group, &[]);
+            rpass.set_bind_group(2, &self.uniforms.bind_group, &[]);
 
             rpass.draw(0..6, 0..1);
         }
