@@ -64,22 +64,23 @@ fn hash(p: vec2<f32>) -> f32 {
 }
 @fragment
 fn fs_main(@location(0) v_uv: vec2<f32>) -> @location(0) vec4<f32> {
-    
-    var uv = (v_uv - 0.5) * 10.0;
+  var uv = (v_uv - 0.5) * u.zoom;
     uv.x *= u.resolution.x / u.resolution.y;
-    uv.x *= u.zoom.x / u.zoom.y;
-    uv.y *= u.zoom.x / u.zoom.y;
-    let t = u.time * 0.5;
-    let a = -atan2(uv.y, uv.x);
-    let r = length(uv) * 2.0;
 
-    let col = 0.58 + 0.26 * vec3<f32>(
-        sin(a*1.0 + (sin(t) * cos(t))),
-        sin(a*2.0 + (t * sin(t))) + 1.0,
-        sin(a*3.0 + (sin(t) * cos(t))) + 2.0
+    let t = u.time;
+    let center = u.mouse_position / u.resolution - 0.5;
+    let dist = length(uv - center);
+
+    let ripple = sin(20.0 * dist - 5.0 * t) * 0.5 + 0.5;
+
+    let color = vec3<f32>(
+        ripple * 0.3 + 0.2,
+        ripple * 0.5 + 0.2,
+        ripple * 0.7 + 0.3
     );
 
-    let fade = 1.0/(1.0 + 4.0*r*r);
-  return vec4<f32>(col * fade , 1.0) * 3.0;
+    let fade = 1.0 / (1.0 + 5.0 * dist * dist);
+
+    return vec4<f32>(color * fade, 1.0);
 }
 

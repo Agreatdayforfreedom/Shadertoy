@@ -1,10 +1,6 @@
 use pollster::FutureExt;
 use winit::{
-    application::ApplicationHandler,
-    event::{DeviceEvent, WindowEvent},
-    event_loop::ActiveEventLoop,
-    platform::wayland::WindowAttributesExtWayland,
-    window::{Window, WindowAttributes, WindowId},
+    application::ApplicationHandler, event::{DeviceEvent, WindowEvent}, event_loop::ActiveEventLoop, window::{Window, WindowAttributes, WindowId}
 };
 
 use crate::{gpu::GpuState, input_manager::InputEvent};
@@ -25,9 +21,21 @@ impl Default for App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let attrs = WindowAttributes::default()
-            .with_title("shader_toy")
-            .with_name("myapp", "myapp");
+
+        let mut attrs = WindowAttributes::default()
+            .with_title("shader_toy");
+
+        #[cfg(target_os = "windows")]
+        {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            attrs = attrs.with_class_name("myapp");
+        }
+
+        #[cfg(all(target_os = "linux", feature = "wayland"))]
+        {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            attrs = attrs.with_name("myapp", "myapp");
+        }
         let window = event_loop.create_window(attrs).unwrap();
 
         self.time = instant::Instant::now();
